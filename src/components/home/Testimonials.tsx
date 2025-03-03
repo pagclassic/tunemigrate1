@@ -29,9 +29,17 @@ const testimonials = [
   }
 ];
 
-const TestimonialCard = ({ testimonial }: { testimonial: typeof testimonials[0] }) => {
+interface TestimonialCardProps {
+  testimonial: typeof testimonials[0];
+  style?: React.CSSProperties;
+}
+
+const TestimonialCard = ({ testimonial, style }: TestimonialCardProps) => {
   return (
-    <div className="rounded-lg border bg-card p-6 shadow-subtle flex flex-col h-full animate-fade-up">
+    <div 
+      className="rounded-lg border bg-card p-6 shadow-subtle flex flex-col h-full animate-fade-up"
+      style={style}
+    >
       <div className="flex mb-4">
         {Array(testimonial.stars).fill(0).map((_, i) => (
           <Star key={i} className="h-5 w-5 fill-yellow-400 text-yellow-400" />

@@ -36,12 +36,21 @@ const features = [
   }
 ];
 
-const FeatureCard = ({ feature, className }: { feature: typeof features[0], className?: string }) => {
+interface FeatureCardProps {
+  feature: typeof features[0];
+  className?: string;
+  style?: React.CSSProperties;
+}
+
+const FeatureCard = ({ feature, className, style }: FeatureCardProps) => {
   return (
-    <div className={cn(
-      "group relative rounded-lg border bg-card p-6 shadow-subtle transition-all hover:shadow-md", 
-      className
-    )}>
+    <div 
+      className={cn(
+        "group relative rounded-lg border bg-card p-6 shadow-subtle transition-all hover:shadow-md", 
+        className
+      )}
+      style={style}
+    >
       <div className="mb-3 inline-flex h-10 w-10 items-center justify-center rounded-full bg-primary/10 text-primary">
         {feature.icon}
       </div>
