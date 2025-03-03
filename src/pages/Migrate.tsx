@@ -1,36 +1,28 @@
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useToast } from '@/hooks/use-toast';
 import AppLayout from '@/components/layout/AppLayout';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { ArrowRight, Youtube, Music, Search, CheckCircle, AlertCircle } from 'lucide-react';
-
-// Mock playlist data for demonstration
-const mockPlaylist = {
-  title: "My Awesome Mix",
-  thumbnail: "https://i.ytimg.com/vi/dQw4w9WgXcQ/maxresdefault.jpg",
-  trackCount: 12,
-  creator: "John Doe"
-};
-
-// Mock tracks with match confidence
-const mockTracks = [
-  { id: 1, title: "Never Gonna Give You Up", artist: "Rick Astley", duration: "3:32", confidence: 98, status: "high" },
-  { id: 2, title: "Bohemian Rhapsody", artist: "Queen", duration: "5:54", confidence: 96, status: "high" },
-  { id: 3, title: "Imagine", artist: "John Lennon", duration: "3:03", confidence: 92, status: "high" },
-  { id: 4, title: "Hotel California", artist: "Eagles", duration: "6:30", confidence: 89, status: "medium" },
-  { id: 5, title: "The Sound of Silence (Live)", artist: "Disturbed", duration: "4:08", confidence: 67, status: "low" },
-  { id: 6, title: "Sweet Child O' Mine", artist: "Guns N' Roses", duration: "5:56", confidence: 95, status: "high" },
-  { id: 7, title: "Billie Jean", artist: "Michael Jackson", duration: "4:54", confidence: 94, status: "high" },
-  { id: 8, title: "Stairway to Heaven", artist: "Led Zeppelin", duration: "8:02", confidence: 88, status: "medium" },
-  { id: 9, title: "Smells Like Teen Spirit", artist: "Nirvana", duration: "5:01", confidence: 91, status: "high" },
-  { id: 10, title: "Despacito Remix", artist: "Luis Fonsi ft. Justin Bieber", duration: "3:48", confidence: 72, status: "medium" },
-  { id: 11, title: "Random Indie Track (Official Audio)", artist: "Unknown Artist", duration: "4:17", confidence: 45, status: "low" },
-  { id: 12, title: "Custom Song Name That's Hard to Match", artist: "Various Artists", duration: "6:29", confidence: 33, status: "low" },
-];
+import { ArrowRight, Youtube, Music, Search, CheckCircle, AlertCircle, Loader2 } from 'lucide-react';
+import { 
+  extractPlaylistIdFromUrl, 
+  fetchPlaylistDetails, 
+  fetchPlaylistTracks 
+} from '@/services/youtubeService';
+import { 
+  isLoggedInToSpotify, 
+  getSpotifyLoginUrl, 
+  matchTracks, 
+  createSpotifyPlaylist 
+} from '@/services/spotifyService';
+import { 
+  YouTubePlaylist, 
+  YouTubeTrack, 
+  TrackMatch, 
+  PlaylistMigrationResult 
+} from '@/types/api';
 
 const ConfidenceIndicator = ({ confidence }: { confidence: number }) => {
   let color = "bg-red-500";
@@ -82,12 +74,37 @@ const Migrate = () => {
   const [url, setUrl] = useState("");
   const [step, setStep] = useState(1);
   const [isLoading, setIsLoading] = useState(false);
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [playlist, setPlaylist] = useState<YouTubePlaylist | null>(null);
+  const [tracks, setTracks] = useState<YouTubeTrack[]>([]);
+  const [trackMatches, setTrackMatches] = useState<TrackMatch[]>([]);
+  const [migrationResult, setMigrationResult] = useState<PlaylistMigrationResult | null>(null);
   const { toast } = useToast();
 
-  const handleUrlSubmit = (e: React.FormEvent) => {
+  // Check if user is logged in to Spotify
+  useEffect(() => {
+    setIsAuthenticated(isLoggedInToSpotify());
+  }, []);
+
+  const handleLogin = () => {
+    window.location.href = getSpotifyLoginUrl();
+  };
+
+  const handleUrlSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     
-    if (!url.includes("youtube.com") && !url.includes("youtu.be")) {
+    if (!url) {
+      toast({
+        title: "Missing URL",
+        description: "Please enter a YouTube playlist URL",
+        variant: "destructive",
+      });
+      return;
+    }
+    
+    const playlistId = extractPlaylistIdFromUrl(url);
+    
+    if (!playlistId) {
       toast({
         title: "Invalid URL",
         description: "Please enter a valid YouTube playlist URL",
@@ -98,26 +115,113 @@ const Migrate = () => {
     
     setIsLoading(true);
     
-    // Simulate API call
-    setTimeout(() => {
-      setIsLoading(false);
+    try {
+      // Fetch playlist details
+      const playlistDetails = await fetchPlaylistDetails(playlistId);
+      setPlaylist(playlistDetails);
+      
+      // Fetch playlist tracks
+      const playlistTracks = await fetchPlaylistTracks(playlistId);
+      setTracks(playlistTracks);
+      
       setStep(2);
-    }, 1500);
+      
+      // Start matching tracks with Spotify
+      const matches = await matchTracks(playlistTracks);
+      setTrackMatches(matches);
+    } catch (error) {
+      console.error("Error processing playlist:", error);
+      toast({
+        title: "Error",
+        description: "Failed to process YouTube playlist. Please try again.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsLoading(false);
+    }
   };
 
-  const handleCreatePlaylist = () => {
+  const handleCreatePlaylist = async () => {
+    if (!playlist || trackMatches.length === 0) {
+      toast({
+        title: "Error",
+        description: "No tracks to migrate",
+        variant: "destructive",
+      });
+      return;
+    }
+    
+    if (!isAuthenticated) {
+      handleLogin();
+      return;
+    }
+    
     setIsLoading(true);
     
-    // Simulate API call
-    setTimeout(() => {
-      setIsLoading(false);
+    try {
+      const result = await createSpotifyPlaylist(
+        `${playlist.title} - Migrated from YouTube`,
+        `This playlist was migrated from YouTube by TuneMigrate. Original creator: ${playlist.creator}`,
+        trackMatches
+      );
+      
+      setMigrationResult(result);
       setStep(3);
+      
       toast({
         title: "Success!",
         description: "Your playlist has been created on Spotify",
-        variant: "default",
       });
-    }, 2000);
+    } catch (error) {
+      console.error("Error creating playlist:", error);
+      
+      // Check if it's an auth error
+      if (error instanceof Error && error.message.includes("Not logged in")) {
+        toast({
+          title: "Authentication Required",
+          description: "Please log in to Spotify to create playlists",
+          variant: "destructive",
+        });
+        setIsAuthenticated(false);
+      } else {
+        toast({
+          title: "Error",
+          description: "Failed to create Spotify playlist. Please try again.",
+          variant: "destructive",
+        });
+      }
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleFindAlternative = async (index: number) => {
+    if (!trackMatches[index]) return;
+    
+    const match = trackMatches[index];
+    const searchQuery = `${match.youtubeTrack.artist} ${match.youtubeTrack.title}`;
+    
+    setIsLoading(true);
+    
+    try {
+      // Implement a modal or dropdown with search results here
+      // For now, we'll just show a toast
+      toast({
+        title: "Finding alternatives",
+        description: `Searching for alternatives to "${match.youtubeTrack.title}"`,
+      });
+      
+      // This would be replaced with actual UI for selecting alternatives
+    } catch (error) {
+      console.error("Error finding alternatives:", error);
+      toast({
+        title: "Error",
+        description: "Failed to find alternative tracks",
+        variant: "destructive",
+      });
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   return (
@@ -176,8 +280,39 @@ const Migrate = () => {
                       />
                     </div>
                     <Button type="submit" disabled={isLoading}>
-                      {isLoading ? "Analyzing..." : "Analyze Playlist"}
+                      {isLoading ? (
+                        <>
+                          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                          Analyzing...
+                        </>
+                      ) : (
+                        "Analyze Playlist"
+                      )}
                     </Button>
+                  </div>
+
+                  {/* Spotify Auth Status */}
+                  <div className="mt-4 flex justify-between items-center p-3 bg-muted/50 rounded-lg">
+                    <div className="flex items-center">
+                      <Music className="mr-2 h-5 w-5 text-green-500" />
+                      <div>
+                        <p className="text-sm font-medium">Spotify Connection</p>
+                        <p className="text-xs text-muted-foreground">
+                          {isAuthenticated 
+                            ? "Connected to Spotify" 
+                            : "Not connected to Spotify"}
+                        </p>
+                      </div>
+                    </div>
+                    {!isAuthenticated && (
+                      <Button 
+                        variant="outline" 
+                        size="sm" 
+                        onClick={handleLogin}
+                      >
+                        Connect to Spotify
+                      </Button>
+                    )}
                   </div>
                 </form>
               </CardContent>
@@ -197,15 +332,15 @@ const Migrate = () => {
           )}
 
           {/* Step 2: Review matches */}
-          {step === 2 && (
+          {step === 2 && playlist && (
             <div className="space-y-6 animate-fade-up">
               <Card>
                 <CardHeader className="pb-4">
                   <div className="flex justify-between items-start">
                     <div>
-                      <CardTitle>{mockPlaylist.title}</CardTitle>
+                      <CardTitle>{playlist.title}</CardTitle>
                       <CardDescription className="mt-1">
-                        {mockPlaylist.trackCount} tracks • Created by {mockPlaylist.creator}
+                        {playlist.trackCount} tracks • Created by {playlist.creator}
                       </CardDescription>
                     </div>
                     <div className="flex flex-col items-end">
@@ -228,53 +363,83 @@ const Migrate = () => {
                   </div>
                 </CardHeader>
                 <CardContent className="p-0">
-                  <div className="relative overflow-x-auto border-t">
-                    <table className="w-full text-sm">
-                      <thead className="text-xs bg-muted/50">
-                        <tr>
-                          <th className="px-6 py-3 text-left">#</th>
-                          <th className="px-6 py-3 text-left">Track</th>
-                          <th className="px-6 py-3 text-left">Duration</th>
-                          <th className="px-6 py-3 text-left">Match Confidence</th>
-                          <th className="px-6 py-3 text-left">Status</th>
-                          <th className="px-6 py-3 text-left">Actions</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {mockTracks.map((track, index) => (
-                          <tr key={track.id} className="border-t hover:bg-muted/50 transition-colors">
-                            <td className="px-6 py-4">{index + 1}</td>
-                            <td className="px-6 py-4">
-                              <div>
-                                <div className="font-medium">{track.title}</div>
-                                <div className="text-muted-foreground text-xs mt-1">{track.artist}</div>
-                              </div>
-                            </td>
-                            <td className="px-6 py-4">{track.duration}</td>
-                            <td className="px-6 py-4 min-w-[200px]">
-                              <ConfidenceIndicator confidence={track.confidence} />
-                            </td>
-                            <td className="px-6 py-4">
-                              <StatusIndicator status={track.status} />
-                            </td>
-                            <td className="px-6 py-4">
-                              <Button variant="ghost" size="sm" className="h-8 px-2">
-                                <Search className="h-4 w-4" />
-                                <span className="ml-1">Find Alternative</span>
-                              </Button>
-                            </td>
+                  {isLoading && trackMatches.length === 0 ? (
+                    <div className="flex flex-col items-center justify-center py-12 border-t">
+                      <Loader2 className="h-8 w-8 animate-spin text-primary mb-4" />
+                      <p className="text-muted-foreground">Matching tracks with Spotify...</p>
+                      <p className="text-xs text-muted-foreground mt-1">This may take a minute for larger playlists</p>
+                    </div>
+                  ) : (
+                    <div className="relative overflow-x-auto border-t">
+                      <table className="w-full text-sm">
+                        <thead className="text-xs bg-muted/50">
+                          <tr>
+                            <th className="px-6 py-3 text-left">#</th>
+                            <th className="px-6 py-3 text-left">YouTube Track</th>
+                            <th className="px-6 py-3 text-left">Spotify Match</th>
+                            <th className="px-6 py-3 text-left">Match Confidence</th>
+                            <th className="px-6 py-3 text-left">Status</th>
+                            <th className="px-6 py-3 text-left">Actions</th>
                           </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
+                        </thead>
+                        <tbody>
+                          {trackMatches.map((match, index) => (
+                            <tr key={match.id} className="border-t hover:bg-muted/50 transition-colors">
+                              <td className="px-6 py-4">{index + 1}</td>
+                              <td className="px-6 py-4">
+                                <div>
+                                  <div className="font-medium">{match.youtubeTrack.title}</div>
+                                  <div className="text-muted-foreground text-xs mt-1">{match.youtubeTrack.artist}</div>
+                                </div>
+                              </td>
+                              <td className="px-6 py-4">
+                                <div>
+                                  <div className="font-medium">{match.spotifyTrack.title}</div>
+                                  <div className="text-muted-foreground text-xs mt-1">{match.spotifyTrack.artist}</div>
+                                </div>
+                              </td>
+                              <td className="px-6 py-4 min-w-[200px]">
+                                <ConfidenceIndicator confidence={match.confidence} />
+                              </td>
+                              <td className="px-6 py-4">
+                                <StatusIndicator status={match.status} />
+                              </td>
+                              <td className="px-6 py-4">
+                                <Button 
+                                  variant="ghost" 
+                                  size="sm" 
+                                  className="h-8 px-2"
+                                  onClick={() => handleFindAlternative(index)}
+                                >
+                                  <Search className="h-4 w-4" />
+                                  <span className="ml-1">Find Alternative</span>
+                                </Button>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
                 </CardContent>
                 <CardFooter className="flex justify-between border-t py-4">
                   <Button variant="outline" onClick={() => setStep(1)}>
                     Back
                   </Button>
-                  <Button onClick={handleCreatePlaylist} disabled={isLoading}>
-                    {isLoading ? "Creating..." : "Create Spotify Playlist"}
+                  <Button 
+                    onClick={handleCreatePlaylist} 
+                    disabled={isLoading || trackMatches.length === 0}
+                  >
+                    {isLoading ? (
+                      <>
+                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                        Creating...
+                      </>
+                    ) : !isAuthenticated ? (
+                      "Connect & Create Spotify Playlist"
+                    ) : (
+                      "Create Spotify Playlist"
+                    )}
                   </Button>
                 </CardFooter>
               </Card>
@@ -282,7 +447,7 @@ const Migrate = () => {
           )}
 
           {/* Step 3: Success */}
-          {step === 3 && (
+          {step === 3 && migrationResult && (
             <Card className="animate-fade-up">
               <CardHeader>
                 <CardTitle className="flex items-center text-green-500">
@@ -290,17 +455,17 @@ const Migrate = () => {
                   Playlist Successfully Created!
                 </CardTitle>
                 <CardDescription>
-                  Your YouTube playlist "{mockPlaylist.title}" has been successfully converted to Spotify
+                  Your YouTube playlist has been successfully converted to Spotify
                 </CardDescription>
               </CardHeader>
               <CardContent className="space-y-4">
                 <div className="rounded-lg border p-4 bg-muted/30">
                   <div className="flex justify-between items-center">
                     <div>
-                      <h3 className="font-semibold">{mockPlaylist.title}</h3>
-                      <p className="text-sm text-muted-foreground mt-1">{mockPlaylist.trackCount} tracks • Created just now</p>
+                      <h3 className="font-semibold">{migrationResult.title}</h3>
+                      <p className="text-sm text-muted-foreground mt-1">{migrationResult.trackCount} tracks • Created just now</p>
                     </div>
-                    <Button variant="outline" size="sm" className="gap-1">
+                    <Button variant="outline" size="sm" className="gap-1" onClick={() => window.open(migrationResult.spotifyUrl, "_blank")}>
                       <Music className="h-4 w-4" />
                       Open in Spotify
                     </Button>
@@ -311,21 +476,21 @@ const Migrate = () => {
                   <div className="mr-4 text-muted-foreground">
                     <div className="flex items-center space-x-1">
                       <CheckCircle className="h-5 w-5 text-green-500" />
-                      <span>{mockTracks.filter(t => t.status === "high").length} High confidence matches</span>
+                      <span>{migrationResult.trackMatches.high} High confidence matches</span>
                     </div>
                     <div className="flex items-center space-x-1 mt-1">
                       <CheckCircle className="h-5 w-5 text-yellow-500" />
-                      <span>{mockTracks.filter(t => t.status === "medium").length} Medium confidence matches</span>
+                      <span>{migrationResult.trackMatches.medium} Medium confidence matches</span>
                     </div>
                     <div className="flex items-center space-x-1 mt-1">
                       <AlertCircle className="h-5 w-5 text-red-500" />
-                      <span>{mockTracks.filter(t => t.status === "low").length} Low confidence matches</span>
+                      <span>{migrationResult.trackMatches.low} Low confidence matches</span>
                     </div>
                   </div>
                   <div className="flex-1 flex justify-end">
                     <div className="text-center">
                       <div className="text-2xl font-bold">
-                        {Math.round(mockTracks.reduce((acc, track) => acc + track.confidence, 0) / mockTracks.length)}%
+                        {migrationResult.averageConfidence}%
                       </div>
                       <div className="text-sm text-muted-foreground">
                         Average match accuracy
@@ -338,7 +503,13 @@ const Migrate = () => {
                 <Button variant="outline" onClick={() => setStep(1)}>
                   Convert Another Playlist
                 </Button>
-                <Button variant="default">
+                <Button 
+                  variant="default"
+                  onClick={() => {
+                    const shareText = `I just converted my YouTube playlist to Spotify with ${migrationResult.averageConfidence}% accuracy using TuneMigrate!`;
+                    window.open(`https://twitter.com/intent/tweet?text=${encodeURIComponent(shareText)}`, "_blank");
+                  }}
+                >
                   Share Result
                 </Button>
               </CardFooter>
