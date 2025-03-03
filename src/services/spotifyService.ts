@@ -1,19 +1,21 @@
-
 import { SpotifyTrack, TrackMatch, YouTubeTrack, PlaylistMigrationResult } from "@/types/api";
 
-const SPOTIFY_CLIENT_ID = "0fbc333975954f79bac406cb74d04dbc";
-const SPOTIFY_REDIRECT_URI = window.location.origin + "/auth/callback";
-const SPOTIFY_AUTH_ENDPOINT = "https://accounts.spotify.com/authorize";
-const SPOTIFY_TOKEN_ENDPOINT = "https://accounts.spotify.com/api/token";
-const SPOTIFY_API_BASE_URL = "https://api.spotify.com/v1";
-
-// Scopes needed for playlist creation
-const SPOTIFY_SCOPES = [
-  "playlist-read-private",
-  "playlist-modify-private",
-  "playlist-modify-public",
-  "user-read-email"
-].join(" ");
+// Spotify API configuration
+// These values can be stored in environment variables for better security in production
+const SPOTIFY_CONFIG = {
+  CLIENT_ID: "0fbc333975954f79bac406cb74d04dbc",
+  CLIENT_SECRET: "3c5e40ae5d5e41d79e74364e5c420e41",
+  REDIRECT_URI: window.location.origin + "/auth/callback",
+  AUTH_ENDPOINT: "https://accounts.spotify.com/authorize",
+  TOKEN_ENDPOINT: "https://accounts.spotify.com/api/token",
+  API_BASE_URL: "https://api.spotify.com/v1",
+  SCOPES: [
+    "playlist-read-private",
+    "playlist-modify-private",
+    "playlist-modify-public",
+    "user-read-email"
+  ].join(" ")
+};
 
 // Generate a random string for state parameter
 const generateRandomString = (length: number) => {
@@ -30,12 +32,12 @@ export const getSpotifyLoginUrl = () => {
   const state = generateRandomString(16);
   localStorage.setItem("spotify_auth_state", state);
   
-  const url = new URL(SPOTIFY_AUTH_ENDPOINT);
-  url.searchParams.append("client_id", SPOTIFY_CLIENT_ID);
+  const url = new URL(SPOTIFY_CONFIG.AUTH_ENDPOINT);
+  url.searchParams.append("client_id", SPOTIFY_CONFIG.CLIENT_ID);
   url.searchParams.append("response_type", "code");
-  url.searchParams.append("redirect_uri", SPOTIFY_REDIRECT_URI);
+  url.searchParams.append("redirect_uri", SPOTIFY_CONFIG.REDIRECT_URI);
   url.searchParams.append("state", state);
-  url.searchParams.append("scope", SPOTIFY_SCOPES);
+  url.searchParams.append("scope", SPOTIFY_CONFIG.SCOPES);
   
   return url.toString();
 };
@@ -61,7 +63,7 @@ export const handleSpotifyCallback = async (code: string, state: string): Promis
   }
   
   try {
-    const response = await fetch(SPOTIFY_TOKEN_ENDPOINT, {
+    const response = await fetch(SPOTIFY_CONFIG.TOKEN_ENDPOINT, {
       method: "POST",
       headers: {
         "Content-Type": "application/x-www-form-urlencoded",
@@ -69,9 +71,9 @@ export const handleSpotifyCallback = async (code: string, state: string): Promis
       body: new URLSearchParams({
         grant_type: "authorization_code",
         code,
-        redirect_uri: SPOTIFY_REDIRECT_URI,
-        client_id: SPOTIFY_CLIENT_ID,
-        client_secret: "3c5e40ae5d5e41d79e74364e5c420e41", // Note: In a production app, this should not be exposed in client-side code
+        redirect_uri: SPOTIFY_CONFIG.REDIRECT_URI,
+        client_id: SPOTIFY_CONFIG.CLIENT_ID,
+        client_secret: SPOTIFY_CONFIG.CLIENT_SECRET,
       }),
     });
     
@@ -108,7 +110,7 @@ const getValidAccessToken = async (): Promise<string> => {
   
   // Token expired, refresh it
   try {
-    const response = await fetch(SPOTIFY_TOKEN_ENDPOINT, {
+    const response = await fetch(SPOTIFY_CONFIG.TOKEN_ENDPOINT, {
       method: "POST",
       headers: {
         "Content-Type": "application/x-www-form-urlencoded",
@@ -116,8 +118,8 @@ const getValidAccessToken = async (): Promise<string> => {
       body: new URLSearchParams({
         grant_type: "refresh_token",
         refresh_token: refreshToken,
-        client_id: SPOTIFY_CLIENT_ID,
-        client_secret: "3c5e40ae5d5e41d79e74364e5c420e41", // Note: In a production app, this should not be exposed in client-side code
+        client_id: SPOTIFY_CONFIG.CLIENT_ID,
+        client_secret: SPOTIFY_CONFIG.CLIENT_SECRET,
       }),
     });
     
@@ -145,7 +147,7 @@ export const searchTrack = async (query: string): Promise<SpotifyTrack[]> => {
   try {
     const accessToken = await getValidAccessToken();
     
-    const url = new URL(`${SPOTIFY_API_BASE_URL}/search`);
+    const url = new URL(`${SPOTIFY_CONFIG.API_BASE_URL}/search`);
     url.searchParams.append("q", query);
     url.searchParams.append("type", "track");
     url.searchParams.append("limit", "10");
@@ -271,7 +273,7 @@ export const createSpotifyPlaylist = async (
     const accessToken = await getValidAccessToken();
     
     // Get user ID
-    const userResponse = await fetch(`${SPOTIFY_API_BASE_URL}/me`, {
+    const userResponse = await fetch(`${SPOTIFY_CONFIG.API_BASE_URL}/me`, {
       headers: {
         Authorization: `Bearer ${accessToken}`,
       },
@@ -285,7 +287,7 @@ export const createSpotifyPlaylist = async (
     const userId = userData.id;
     
     // Create playlist
-    const createResponse = await fetch(`${SPOTIFY_API_BASE_URL}/users/${userId}/playlists`, {
+    const createResponse = await fetch(`${SPOTIFY_CONFIG.API_BASE_URL}/users/${userId}/playlists`, {
       method: "POST",
       headers: {
         Authorization: `Bearer ${accessToken}`,
@@ -312,7 +314,7 @@ export const createSpotifyPlaylist = async (
     for (let i = 0; i < trackUris.length; i += 100) {
       const batch = trackUris.slice(i, i + 100);
       
-      const addTracksResponse = await fetch(`${SPOTIFY_API_BASE_URL}/playlists/${playlistId}/tracks`, {
+      const addTracksResponse = await fetch(`${SPOTIFY_CONFIG.API_BASE_URL}/playlists/${playlistId}/tracks`, {
         method: "POST",
         headers: {
           Authorization: `Bearer ${accessToken}`,
