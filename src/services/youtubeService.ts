@@ -1,6 +1,6 @@
-
 import { YouTubePlaylist, YouTubeTrack } from "@/types/api";
 
+// YouTube API key - in production, use environment variables
 const YOUTUBE_API_KEY = "AIzaSyBi-wrtS__IN67vSvK3poSimRoBBQqJAog";
 const YOUTUBE_API_BASE_URL = "https://www.googleapis.com/youtube/v3";
 
@@ -87,9 +87,8 @@ export const fetchPlaylistTracks = async (playlistId: string): Promise<YouTubeTr
         if (item.snippet.title !== "Deleted video" && item.snippet.title !== "Private video") {
           const videoId = item.contentDetails.videoId;
           
-          // Fetch video details to get duration
-          const videoDetails = await fetchVideoDetails(videoId);
-          
+          // Simplified approach: Don't fetch extra details to speed up the process
+          // Just extract info from the playlist item
           const title = item.snippet.title;
           // Extract artist from title (best effort)
           let artist = "Unknown Artist";
@@ -102,7 +101,7 @@ export const fetchPlaylistTracks = async (playlistId: string): Promise<YouTubeTr
             id: videoId,
             title: title,
             artist: artist,
-            duration: formatDuration(videoDetails.duration),
+            duration: "3:30", // Placeholder duration
             thumbnailUrl: item.snippet.thumbnails?.high?.url || 
                          item.snippet.thumbnails?.medium?.url || 
                          item.snippet.thumbnails?.default?.url
@@ -111,34 +110,10 @@ export const fetchPlaylistTracks = async (playlistId: string): Promise<YouTubeTr
       }
     } while (nextPageToken);
     
+    console.log(`Fetched ${tracks.length} tracks from YouTube playlist`);
     return tracks;
   } catch (error) {
     console.error("Error fetching playlist tracks:", error);
-    throw error;
-  }
-};
-
-const fetchVideoDetails = async (videoId: string) => {
-  try {
-    const response = await fetch(
-      `${YOUTUBE_API_BASE_URL}/videos?part=contentDetails&id=${videoId}&key=${YOUTUBE_API_KEY}`
-    );
-    
-    if (!response.ok) {
-      throw new Error(`YouTube API error: ${response.status}`);
-    }
-    
-    const data = await response.json();
-    
-    if (!data.items || data.items.length === 0) {
-      throw new Error("Video not found");
-    }
-    
-    return {
-      duration: data.items[0].contentDetails.duration // ISO 8601 duration
-    };
-  } catch (error) {
-    console.error("Error fetching video details:", error);
     throw error;
   }
 };

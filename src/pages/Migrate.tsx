@@ -83,11 +83,19 @@ const Migrate = () => {
 
   // Check if user is logged in to Spotify
   useEffect(() => {
-    setIsAuthenticated(isLoggedInToSpotify());
+    const checkAuth = async () => {
+      const authenticated = isLoggedInToSpotify();
+      console.log("Spotify authentication status:", authenticated);
+      setIsAuthenticated(authenticated);
+    };
+    
+    checkAuth();
   }, []);
 
   const handleLogin = () => {
-    window.location.href = getSpotifyLoginUrl();
+    const loginUrl = getSpotifyLoginUrl();
+    console.log("Redirecting to Spotify login:", loginUrl);
+    window.location.href = loginUrl;
   };
 
   const handleUrlSubmit = async (e: React.FormEvent) => {
@@ -103,6 +111,7 @@ const Migrate = () => {
     }
     
     const playlistId = extractPlaylistIdFromUrl(url);
+    console.log("Extracted playlist ID:", playlistId);
     
     if (!playlistId) {
       toast({
@@ -117,17 +126,23 @@ const Migrate = () => {
     
     try {
       // Fetch playlist details
+      console.log("Fetching playlist details...");
       const playlistDetails = await fetchPlaylistDetails(playlistId);
+      console.log("Playlist details:", playlistDetails);
       setPlaylist(playlistDetails);
       
       // Fetch playlist tracks
+      console.log("Fetching playlist tracks...");
       const playlistTracks = await fetchPlaylistTracks(playlistId);
+      console.log(`Retrieved ${playlistTracks.length} tracks from YouTube`);
       setTracks(playlistTracks);
       
       setStep(2);
       
       // Start matching tracks with Spotify
+      console.log("Starting Spotify track matching...");
       const matches = await matchTracks(playlistTracks);
+      console.log(`Matched ${matches.length} tracks with Spotify`);
       setTrackMatches(matches);
     } catch (error) {
       console.error("Error processing playlist:", error);
@@ -363,7 +378,7 @@ const Migrate = () => {
                   </div>
                 </CardHeader>
                 <CardContent className="p-0">
-                  {isLoading && trackMatches.length === 0 ? (
+                  {isLoading || trackMatches.length === 0 ? (
                     <div className="flex flex-col items-center justify-center py-12 border-t">
                       <Loader2 className="h-8 w-8 animate-spin text-primary mb-4" />
                       <p className="text-muted-foreground">Matching tracks with Spotify...</p>

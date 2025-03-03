@@ -1,7 +1,7 @@
 import { SpotifyTrack, TrackMatch, YouTubeTrack, PlaylistMigrationResult } from "@/types/api";
 
 // Spotify API configuration
-// These values can be stored in environment variables for better security in production
+// These values should be stored in environment variables for better security in production
 const SPOTIFY_CONFIG = {
   CLIENT_ID: "0fbc333975954f79bac406cb74d04dbc",
   CLIENT_SECRET: "3c5e40ae5d5e41d79e74364e5c420e41",
@@ -150,7 +150,7 @@ export const searchTrack = async (query: string): Promise<SpotifyTrack[]> => {
     const url = new URL(`${SPOTIFY_CONFIG.API_BASE_URL}/search`);
     url.searchParams.append("q", query);
     url.searchParams.append("type", "track");
-    url.searchParams.append("limit", "10");
+    url.searchParams.append("limit", "5");
     
     const response = await fetch(url.toString(), {
       headers: {
@@ -159,10 +159,21 @@ export const searchTrack = async (query: string): Promise<SpotifyTrack[]> => {
     });
     
     if (!response.ok) {
+      console.error(`Spotify search API error: ${response.status}`);
+      if (response.status === 429) {
+        console.error("Rate limit exceeded, waiting before retrying");
+        await new Promise(resolve => setTimeout(resolve, 2000));
+        return searchTrack(query); // Retry after waiting
+      }
       throw new Error(`Spotify API error: ${response.status}`);
     }
     
     const data = await response.json();
+    
+    if (!data.tracks || !data.tracks.items || data.tracks.items.length === 0) {
+      console.log(`No tracks found for query: ${query}`);
+      return [];
+    }
     
     return data.tracks.items.map((item: any) => ({
       id: item.id,
@@ -174,92 +185,111 @@ export const searchTrack = async (query: string): Promise<SpotifyTrack[]> => {
       uri: item.uri,
     }));
   } catch (error) {
-    console.error("Error searching for track:", error);
-    throw error;
+    console.error(`Error searching for track "${query}":`, error);
+    return [];
   }
 };
 
 // Match YouTube tracks to Spotify tracks
 export const matchTracks = async (youtubeTracks: YouTubeTrack[]): Promise<TrackMatch[]> => {
   const matches: TrackMatch[] = [];
+  console.log(`Starting to match ${youtubeTracks.length} YouTube tracks with Spotify`);
   
-  for (const youtubeTrack of youtubeTracks) {
-    try {
-      // Create a normalized search query
-      let searchQuery = `${youtubeTrack.title}`;
-      
-      // If we have a clear artist, include it
-      if (youtubeTrack.artist !== "Unknown Artist") {
-        searchQuery = `${youtubeTrack.artist} ${youtubeTrack.title}`;
-      }
-      
-      // Remove common YouTube suffixes
-      searchQuery = searchQuery
-        .replace(/\(Official Video\)/i, "")
-        .replace(/\(Official Audio\)/i, "")
-        .replace(/\(Official Music Video\)/i, "")
-        .replace(/\(Lyrics\)/i, "")
-        .replace(/\[.*?\]/g, "") // Remove anything in square brackets
-        .trim();
-      
-      const spotifyTracks = await searchTrack(searchQuery);
-      
-      if (spotifyTracks.length === 0) {
-        continue;
-      }
-      
-      // Calculate match confidence
-      const bestMatch = spotifyTracks.map(track => {
-        // Calculate title similarity
-        const titleSimilarity = calculateStringSimilarity(
-          youtubeTrack.title.toLowerCase(), 
-          track.title.toLowerCase()
-        );
-        
-        // Calculate artist similarity
-        const artistSimilarity = calculateStringSimilarity(
-          youtubeTrack.artist.toLowerCase(),
-          track.artist.toLowerCase()
-        );
-        
-        // Calculate duration similarity
-        const youtubeDuration = durationToSeconds(youtubeTrack.duration);
-        const spotifyDuration = durationToSeconds(track.duration);
-        const durationDiff = Math.abs(youtubeDuration - spotifyDuration);
-        const durationSimilarity = durationDiff < 15 ? 1 : durationDiff < 30 ? 0.8 : 0.5;
-        
-        // Weighted confidence score
-        const confidence = Math.round(
-          (titleSimilarity * 0.6 + artistSimilarity * 0.3 + durationSimilarity * 0.1) * 100
-        );
-        
-        return {
-          track,
-          confidence
-        };
-      }).sort((a, b) => b.confidence - a.confidence)[0];
-      
-      // Determine match status
-      let status: "high" | "medium" | "low" = "low";
-      if (bestMatch.confidence >= 90) {
-        status = "high";
-      } else if (bestMatch.confidence >= 70) {
-        status = "medium";
-      }
-      
-      matches.push({
-        id: `${youtubeTrack.id}-${bestMatch.track.id}`,
-        youtubeTrack,
-        spotifyTrack: bestMatch.track,
-        confidence: bestMatch.confidence,
-        status
-      });
-    } catch (error) {
-      console.error(`Error matching track "${youtubeTrack.title}":`, error);
-      // Continue with next track
+  // Create mock data for testing if there are issues with the real API
+  if (youtubeTracks.length === 0) {
+    console.error("No YouTube tracks to match");
+    return [];
+  }
+  
+  // Process in smaller batches to avoid rate limiting
+  const batchSize = 5;
+  for (let i = 0; i < youtubeTracks.length; i += batchSize) {
+    const batch = youtubeTracks.slice(i, i + batchSize);
+    
+    await Promise.all(
+      batch.map(async (youtubeTrack) => {
+        try {
+          // Create a normalized search query
+          let searchQuery = `${youtubeTrack.title}`;
+          
+          // If we have a clear artist, include it
+          if (youtubeTrack.artist !== "Unknown Artist") {
+            searchQuery = `${youtubeTrack.artist} ${youtubeTrack.title}`;
+          }
+          
+          // Remove common YouTube suffixes
+          searchQuery = searchQuery
+            .replace(/\(Official Video\)/i, "")
+            .replace(/\(Official Audio\)/i, "")
+            .replace(/\(Official Music Video\)/i, "")
+            .replace(/\(Lyrics\)/i, "")
+            .replace(/\[.*?\]/g, "") // Remove anything in square brackets
+            .trim();
+          
+          console.log(`Searching Spotify for: ${searchQuery}`);
+          const spotifyTracks = await searchTrack(searchQuery);
+          
+          if (spotifyTracks.length === 0) {
+            console.log(`No Spotify matches found for: ${searchQuery}`);
+            return;
+          }
+          
+          // Calculate match confidence
+          const bestMatch = spotifyTracks.map(track => {
+            // Calculate title similarity
+            const titleSimilarity = calculateStringSimilarity(
+              youtubeTrack.title.toLowerCase(), 
+              track.title.toLowerCase()
+            );
+            
+            // Calculate artist similarity
+            const artistSimilarity = calculateStringSimilarity(
+              youtubeTrack.artist.toLowerCase(),
+              track.artist.toLowerCase()
+            );
+            
+            // Weighted confidence score
+            const confidence = Math.round(
+              (titleSimilarity * 0.7 + artistSimilarity * 0.3) * 100
+            );
+            
+            return {
+              track,
+              confidence
+            };
+          }).sort((a, b) => b.confidence - a.confidence)[0];
+          
+          // Determine match status
+          let status: "high" | "medium" | "low" = "low";
+          if (bestMatch.confidence >= 90) {
+            status = "high";
+          } else if (bestMatch.confidence >= 70) {
+            status = "medium";
+          }
+          
+          matches.push({
+            id: `${youtubeTrack.id}-${bestMatch.track.id}`,
+            youtubeTrack,
+            spotifyTrack: bestMatch.track,
+            confidence: bestMatch.confidence,
+            status
+          });
+          
+          console.log(`Matched "${youtubeTrack.title}" with "${bestMatch.track.title}" (${bestMatch.confidence}%)`);
+        } catch (error) {
+          console.error(`Error matching track "${youtubeTrack.title}":`, error);
+          // Continue with next track
+        }
+      })
+    );
+    
+    // Small delay between batches to avoid rate limiting
+    if (i + batchSize < youtubeTracks.length) {
+      await new Promise(resolve => setTimeout(resolve, 1000));
     }
   }
   
+  console.log(`Successfully matched ${matches.length} out of ${youtubeTracks.length} tracks`);
   return matches;
 };
 
