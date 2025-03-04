@@ -1,3 +1,4 @@
+
 import { YouTubePlaylist, YouTubeTrack } from "@/types/api";
 
 // YouTube API key - in production, use environment variables
@@ -59,6 +60,7 @@ export const fetchPlaylistDetails = async (playlistId: string): Promise<YouTubeP
 
 export const fetchPlaylistTracks = async (playlistId: string): Promise<YouTubeTrack[]> => {
   try {
+    console.log(`Fetching tracks for playlist ID: ${playlistId}`);
     const tracks: YouTubeTrack[] = [];
     let nextPageToken: string | null = null;
     
@@ -73,18 +75,22 @@ export const fetchPlaylistTracks = async (playlistId: string): Promise<YouTubeTr
         url.searchParams.append("pageToken", nextPageToken);
       }
       
+      console.log(`Fetching playlist items page, URL: ${url.toString()}`);
       const response = await fetch(url.toString());
       
       if (!response.ok) {
+        const errorText = await response.text();
+        console.error(`YouTube API error ${response.status}: ${errorText}`);
         throw new Error(`YouTube API error: ${response.status}`);
       }
       
       const data = await response.json();
+      console.log(`Received ${data.items?.length || 0} items from YouTube API`);
       nextPageToken = data.nextPageToken || null;
       
       // Process each video item
       for (const item of data.items) {
-        if (item.snippet.title !== "Deleted video" && item.snippet.title !== "Private video") {
+        if (item.snippet && item.snippet.title !== "Deleted video" && item.snippet.title !== "Private video") {
           const videoId = item.contentDetails.videoId;
           
           // Simplified approach: Don't fetch extra details to speed up the process
@@ -108,6 +114,12 @@ export const fetchPlaylistTracks = async (playlistId: string): Promise<YouTubeTr
           });
         }
       }
+      
+      // Add a small delay between requests to avoid rate limiting
+      if (nextPageToken) {
+        await new Promise(resolve => setTimeout(resolve, 1000));
+      }
+      
     } while (nextPageToken);
     
     console.log(`Fetched ${tracks.length} tracks from YouTube playlist`);

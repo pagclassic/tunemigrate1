@@ -1,3 +1,4 @@
+
 import { SpotifyTrack, TrackMatch, YouTubeTrack, PlaylistMigrationResult } from "@/types/api";
 
 // Spotify API configuration
@@ -5,6 +6,7 @@ import { SpotifyTrack, TrackMatch, YouTubeTrack, PlaylistMigrationResult } from 
 const SPOTIFY_CONFIG = {
   CLIENT_ID: "0fbc333975954f79bac406cb74d04dbc",
   CLIENT_SECRET: "3c5e40ae5d5e41d79e74364e5c420e41",
+  // Make sure the exact same URL is registered in Spotify Developer Dashboard
   REDIRECT_URI: window.location.origin + "/auth/callback",
   AUTH_ENDPOINT: "https://accounts.spotify.com/authorize",
   TOKEN_ENDPOINT: "https://accounts.spotify.com/api/token",
@@ -16,6 +18,9 @@ const SPOTIFY_CONFIG = {
     "user-read-email"
   ].join(" ")
 };
+
+// For debugging - log the actual redirect URI
+console.log("Spotify Redirect URI:", SPOTIFY_CONFIG.REDIRECT_URI);
 
 // Generate a random string for state parameter
 const generateRandomString = (length: number) => {
@@ -39,6 +44,7 @@ export const getSpotifyLoginUrl = () => {
   url.searchParams.append("state", state);
   url.searchParams.append("scope", SPOTIFY_CONFIG.SCOPES);
   
+  console.log("Generated Spotify login URL:", url.toString());
   return url.toString();
 };
 
@@ -56,14 +62,22 @@ export const isLoggedInToSpotify = (): boolean => {
 
 // Handle the callback from Spotify OAuth
 export const handleSpotifyCallback = async (code: string, state: string): Promise<boolean> => {
+  console.log("Handling Spotify callback with code and state");
   const storedState = localStorage.getItem("spotify_auth_state");
   
   if (state === null || state !== storedState) {
+    console.error("State mismatch or null state");
     return false;
   }
   
   try {
-    const response = await fetch(SPOTIFY_CONFIG.TOKEN_ENDPOINT, {
+    console.log("Exchanging code for tokens");
+    const tokenEndpoint = SPOTIFY_CONFIG.TOKEN_ENDPOINT;
+    const redirectUri = SPOTIFY_CONFIG.REDIRECT_URI;
+    
+    console.log("Using redirect URI for token exchange:", redirectUri);
+    
+    const response = await fetch(tokenEndpoint, {
       method: "POST",
       headers: {
         "Content-Type": "application/x-www-form-urlencoded",
@@ -71,17 +85,20 @@ export const handleSpotifyCallback = async (code: string, state: string): Promis
       body: new URLSearchParams({
         grant_type: "authorization_code",
         code,
-        redirect_uri: SPOTIFY_CONFIG.REDIRECT_URI,
+        redirect_uri: redirectUri,
         client_id: SPOTIFY_CONFIG.CLIENT_ID,
         client_secret: SPOTIFY_CONFIG.CLIENT_SECRET,
       }),
     });
     
     if (!response.ok) {
-      throw new Error("Failed to exchange authorization code for tokens");
+      const errorText = await response.text();
+      console.error(`Token exchange error: ${response.status}`, errorText);
+      throw new Error(`Failed to exchange authorization code for tokens: ${response.status}`);
     }
     
     const data = await response.json();
+    console.log("Token exchange successful");
     
     localStorage.setItem("spotify_access_token", data.access_token);
     localStorage.setItem("spotify_refresh_token", data.refresh_token);
