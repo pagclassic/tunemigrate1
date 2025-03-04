@@ -7,7 +7,9 @@ const SPOTIFY_CONFIG = {
   CLIENT_ID: "0fbc333975954f79bac406cb74d04dbc",
   CLIENT_SECRET: "3c5e40ae5d5e41d79e74364e5c420e41",
   // Make sure the exact same URL is registered in Spotify Developer Dashboard
-  REDIRECT_URI: window.location.origin + "/auth/callback",
+ REDIRECT_URI: window.location.href.includes('preview') 
+    ? "https://preview--tunemigrate1.lovable.app/auth/callback"
+    : "https://tunemigrate1.lovable.app/auth/callback",
   AUTH_ENDPOINT: "https://accounts.spotify.com/authorize",
   TOKEN_ENDPOINT: "https://accounts.spotify.com/api/token",
   API_BASE_URL: "https://api.spotify.com/v1",
